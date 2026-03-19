@@ -18,6 +18,7 @@
 use super::Helper;
 use crate::auth;
 use crate::error::GwsError;
+use crate::output::sanitize_for_terminal;
 use clap::{Arg, ArgMatches, Command};
 use serde_json::{json, Value};
 use std::future::Future;
@@ -297,9 +298,11 @@ async fn handle_standup_report(matches: &ArgMatches) -> Result<(), GwsError> {
         ],
     )
     .await
-    .map_err(|e| {
-        eprintln!("Warning: Failed to fetch calendar events: {e}");
-        e
+    .inspect_err(|e| {
+        eprintln!(
+            "Warning: Failed to fetch calendar events: {}",
+            sanitize_for_terminal(&e.to_string())
+        );
     })
     .unwrap_or(json!({}));
     let events = events_json
@@ -327,9 +330,11 @@ async fn handle_standup_report(matches: &ArgMatches) -> Result<(), GwsError> {
         &[("showCompleted", "false"), ("maxResults", "20")],
     )
     .await
-    .map_err(|e| {
-        eprintln!("Warning: Failed to fetch tasks: {e}");
-        e
+    .inspect_err(|e| {
+        eprintln!(
+            "Warning: Failed to fetch tasks: {}",
+            sanitize_for_terminal(&e.to_string())
+        );
     })
     .unwrap_or(json!({}));
     let tasks = tasks_json
@@ -557,9 +562,11 @@ async fn handle_weekly_digest(matches: &ArgMatches) -> Result<(), GwsError> {
         ],
     )
     .await
-    .map_err(|e| {
-        eprintln!("Warning: Failed to fetch calendar events: {e}");
-        e
+    .inspect_err(|e| {
+        eprintln!(
+            "Warning: Failed to fetch calendar events: {}",
+            sanitize_for_terminal(&e.to_string())
+        );
     })
     .unwrap_or(json!({}));
     let events = events_json
@@ -586,9 +593,11 @@ async fn handle_weekly_digest(matches: &ArgMatches) -> Result<(), GwsError> {
         &[("q", "is:unread"), ("maxResults", "1")],
     )
     .await
-    .map_err(|e| {
-        eprintln!("Warning: Failed to fetch unread email count: {e}");
-        e
+    .inspect_err(|e| {
+        eprintln!(
+            "Warning: Failed to fetch unread email count: {}",
+            sanitize_for_terminal(&e.to_string())
+        );
     })
     .unwrap_or(json!({}));
     let unread_estimate = gmail_json

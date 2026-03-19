@@ -14,6 +14,8 @@
 
 use std::path::PathBuf;
 
+use crate::output::sanitize_for_terminal;
+
 use aes_gcm::aead::{Aead, KeyInit, OsRng};
 use aes_gcm::{AeadCore, Aes256Gcm, Nonce};
 
@@ -31,7 +33,10 @@ fn ensure_key_dir(path: &std::path::Path) -> std::io::Result<()> {
             use std::os::unix::fs::PermissionsExt;
             if let Err(e) = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700))
             {
-                eprintln!("Warning: failed to set secure permissions on key directory: {e}");
+                eprintln!(
+                    "Warning: failed to set secure permissions on key directory: {}",
+                    sanitize_for_terminal(&e.to_string())
+                );
             }
         }
     }
@@ -60,44 +65,10 @@ fn save_key_file_exclusive(path: &std::path::Path, b64_key: &str) -> std::io::Re
 }
 
 /// Persist the base64-encoded encryption key to a local file with restrictive
-/// permissions (0600 file, 0700 directory). Overwrites any existing file
-/// atomically via a sibling `.tmp` file + rename so a crash mid-write never
-/// leaves the key file truncated or corrupt.
+/// permissions. Uses atomic_write to prevent TOCTOU/symlink race conditions.
 fn save_key_file(path: &std::path::Path, b64_key: &str) -> std::io::Result<()> {
-    use std::io::Write;
-    ensure_key_dir(path)?;
-
-    let file_name = path.file_name().ok_or_else(|| {
-        std::io::Error::new(std::io::ErrorKind::InvalidInput, "path has no file name")
-    })?;
-    let tmp_path = path.with_file_name(format!("{}.tmp", file_name.to_string_lossy()));
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        let mut tmp = std::fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
-            .open(&tmp_path)?;
-        tmp.write_all(b64_key.as_bytes())?;
-        tmp.sync_all()?;
-    }
-    #[cfg(not(unix))]
-    {
-        let mut tmp = std::fs::File::create(&tmp_path)?;
-        tmp.write_all(b64_key.as_bytes())?;
-        tmp.sync_all()?;
-    }
-
-    std::fs::rename(&tmp_path, path)?;
-    Ok(())
+    crate::fs_util::atomic_write(path, b64_key.as_bytes())
 }
-
-/// Read and decode a base64-encoded 256-bit key from a file.
-///
-/// On Unix, warns if the file is world-readable (mode & 0o077 != 0).
 fn read_key_file(path: &std::path::Path) -> Option<[u8; 32]> {
     use base64::{engine::general_purpose::STANDARD, Engine as _};
 
@@ -329,9 +300,15 @@ fn resolve_key(
             }
             Err(e) => {
                 if backend.saves_to_file() {
-                    eprintln!("Warning: keyring access failed, falling back to file storage: {e}");
+                    eprintln!(
+                        "Warning: keyring access failed, falling back to file storage: {}",
+                        sanitize_for_terminal(&e.to_string())
+                    );
                 } else {
-                    eprintln!("Warning: keyring access failed: {e}");
+                    eprintln!(
+                        "Warning: keyring access failed: {}",
+                        sanitize_for_terminal(&e.to_string())
+                    );
                 }
             }
         }
@@ -468,18 +445,6 @@ pub fn save_encrypted(json: &str) -> anyhow::Result<PathBuf> {
     // file is never left in a corrupt partial-write state on crash/Ctrl-C.
     crate::fs_util::atomic_write(&path, &encrypted)
         .map_err(|e| anyhow::anyhow!("Failed to write credentials: {e}"))?;
-
-    // Set permissions to 600 on Unix (contains secrets)
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        if let Err(e) = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)) {
-            eprintln!(
-                "Warning: failed to set file permissions on {}: {e}",
-                path.display()
-            );
-        }
-    }
 
     Ok(path)
 }

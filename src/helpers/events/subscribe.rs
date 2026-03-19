@@ -1,6 +1,7 @@
 use super::*;
 use crate::auth::AccessTokenProvider;
 use crate::helpers::PUBSUB_API_BASE;
+use crate::output::sanitize_for_terminal;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Default, Builder)]
@@ -344,8 +345,8 @@ async fn pull_loop(
                     Err(e) => return Err(anyhow::anyhow!("Pub/Sub pull failed: {e}").into()),
                 }
             }
-            _ = tokio::signal::ctrl_c() => {
-                eprintln!("\nReceived interrupt, stopping...");
+            _ = super::super::shutdown_signal() => {
+                eprintln!("\nReceived shutdown signal, stopping...");
                 return Ok(());
             }
         };
@@ -375,7 +376,11 @@ async fn pull_loop(
                     .unwrap_or(0);
                 let path = dir.join(format!("{ts}_{file_counter}.json"));
                 if let Err(e) = std::fs::write(&path, &json_str) {
-                    eprintln!("Warning: failed to write {}: {e}", path.display());
+                    eprintln!(
+                        "Warning: failed to write {}: {}",
+                        path.display(),
+                        sanitize_for_terminal(&e.to_string())
+                    );
                 } else {
                     eprintln!("Wrote {}", path.display());
                 }
@@ -406,11 +411,11 @@ async fn pull_loop(
             break;
         }
 
-        // Check for SIGINT between polls
+        // Check for SIGINT/SIGTERM between polls
         tokio::select! {
             _ = tokio::time::sleep(std::time::Duration::from_secs(config.poll_interval)) => {},
-            _ = tokio::signal::ctrl_c() => {
-                eprintln!("\nReceived interrupt, stopping...");
+            _ = super::super::shutdown_signal() => {
+                eprintln!("\nReceived shutdown signal, stopping...");
                 break;
             }
         }

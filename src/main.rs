@@ -33,6 +33,7 @@ mod generate_skills;
 mod helpers;
 mod logging;
 mod oauth_config;
+mod output;
 mod schema;
 mod services;
 mod setup;
@@ -215,17 +216,40 @@ async fn run() -> Result<(), GwsError> {
         .ok()
         .flatten()
         .map(|s| s.as_str());
-    let output_path = matched_args.get_one::<String>("output").map(|s| s.as_str());
     let upload_path = matched_args
         .try_get_one::<String>("upload")
         .ok()
         .flatten()
         .map(|s| s.as_str());
-    let upload_content_type = matched_args
-        .try_get_one::<String>("upload-content-type")
-        .ok()
-        .flatten()
-        .map(|s| s.as_str());
+    let output_path = matched_args.get_one::<String>("output").map(|s| s.as_str());
+
+    // Validate file paths against traversal before any I/O.
+    // Use the returned canonical paths so the validated path is the one
+    // actually used for I/O (closes TOCTOU gap).
+    let upload_path_buf = if let Some(p) = upload_path {
+        Some(crate::validate::validate_safe_file_path(p, "--upload")?)
+    } else {
+        None
+    };
+    let output_path_buf = if let Some(p) = output_path {
+        Some(crate::validate::validate_safe_file_path(p, "--output")?)
+    } else {
+        None
+    };
+    let upload_path = upload_path_buf.as_deref().and_then(|p| p.to_str());
+    let output_path = output_path_buf.as_deref().and_then(|p| p.to_str());
+
+    let upload = {
+        let upload_content_type = matched_args
+            .try_get_one::<String>("upload-content-type")
+            .ok()
+            .flatten()
+            .map(|s| s.as_str());
+        upload_path.map(|path| executor::UploadSource::File {
+            path,
+            content_type: upload_content_type,
+        })
+    };
 
     let dry_run = matched_args.get_flag("dry-run");
 
@@ -263,8 +287,7 @@ async fn run() -> Result<(), GwsError> {
         token.as_deref(),
         auth_method,
         output_path,
-        upload_path,
-        upload_content_type,
+        upload,
         dry_run,
         &pagination,
         sanitize_config.template.as_deref(),

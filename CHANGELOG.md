@@ -1,5 +1,75 @@
 # @googleworkspace/cli
 
+## 0.18.1
+
+### Patch Changes
+
+- a87037b: Handle SIGTERM in `gws gmail +watch` and `gws events +subscribe` for clean container shutdown.
+
+  Long-running pull loops now exit gracefully on SIGTERM (in addition to Ctrl+C),
+  enabling clean shutdown under Kubernetes, Docker, and systemd.
+
+## 0.18.0
+
+### Minor Changes
+
+- 908cf73: feat(gmail): auto-populate From header with display name from send-as settings
+
+  Fetch the user's send-as identities to set the From header with a display name in all mail helpers (+send, +reply, +reply-all, +forward), matching Gmail web client behavior. Also enriches bare `--from` emails with their configured display name.
+
+- 6e4daaf: Gmail helpers rollup: mail-builder migration, --attach flag (upload endpoint), +read helper
+
+  - Migrate `+send`, `+reply`, `+reply-all`, and `+forward` to the `mail-builder` crate for RFC-compliant MIME construction
+  - Add `--from` flag to `+send` for send-as alias support
+  - Add `-a`/`--attach` flag to all mail helpers (`+send`, `+reply`, `+reply-all`, `+forward`) with `mime_guess2` auto-detection, 25MB size validation, and upload endpoint support (35MB API limit vs 5MB metadata-only)
+  - Add `+read` helper to extract message body and headers (text, HTML, or JSON output)
+  - Make `OriginalMessage.thread_id` optional (`Option<String>`) for draft compatibility
+  - RFC 2822 display name quoting is handled natively by `mail-builder`
+  - Introduce `UploadSource` enum in executor for type-safe upload strategies
+
+### Patch Changes
+
+- 1e90380: fix(gmail): remove dead `--attachment` arg from `+send`
+
+  The `+send` subcommand defined a duplicate `"attachment"` arg alongside the
+  `"attach"` arg already provided by `common_mail_args`. Since `parse_attachments`
+  reads `"attach"`, the `--attachment` flag was silently ignored. Removed the
+  dead duplicate.
+
+- 908cf73: fix(gmail): handle reply-all to own message correctly
+
+  Reply-all to a message you sent no longer errors with "No To recipient remains." The original To recipients are now used as reply targets, matching Gmail web client behavior.
+
+- 2e909ae: Consolidate terminal sanitization, coloring, and output helpers into a new `output.rs` module. Fixes raw ANSI escape codes in `watch.rs` that bypassed `NO_COLOR` and TTY detection, upgrades `sanitize_for_terminal` to also strip dangerous Unicode characters (bidi overrides, zero-width spaces, directional isolates), and sanitizes previously raw API error body and user query outputs.
+
+## 0.17.0
+
+### Minor Changes
+
+- 1b0a21f: feat: support google meet video conferencing in calendar +insert
+
+### Patch Changes
+
+- 811fe7b: Fix critical security vulnerability (TOCTOU/Symlink race) in atomic file writes.
+
+  The atomic_write and atomic_write_async utilities now use:
+
+  - Randomized temporary filenames to prevent predictability.
+  - O_EXCL creation flags to prevent following pre-existing symlinks.
+  - Strict 0600 permissions from the moment of file creation on Unix systems.
+  - Redundant post-write permission calls have been removed to close race windows.
+
+- b241a5b: fix(security): cap Retry-After sleep, sanitize upload mimeType, and validate --upload/--output paths
+- 6f92e5b: Stderr/output hygiene rollup: route diagnostics to stderr, add colored error labels, propagate auth errors.
+
+  - **triage.rs**: "No messages found" sent to stderr so stdout stays valid JSON for pipes
+  - **modelarmor.rs**: response body printed only on success; error message now includes body for diagnostics
+  - **error.rs**: colored `error[variant]:` labels on stderr (respects `NO_COLOR` env var), `hint:` prefix for accessNotConfigured guidance
+  - **calendar, chat, docs, drive, script, sheets**: auth failures now propagate as `GwsError::Auth` instead of silently proceeding unauthenticated (dry-run still works without auth)
+
+- 398e80c: Sync generated skills with latest Google Discovery API specs
+- 8458104: Extend input validation to reject dangerous Unicode characters (zero-width chars, bidi overrides, Unicode line/paragraph separators) that were not caught by the previous ASCII-range check
+
 ## 0.16.0
 
 ### Minor Changes
